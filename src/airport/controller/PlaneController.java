@@ -1,67 +1,73 @@
 package airport.controller;
 
 import airport.model.Plane;
+import airport.observer.Observer;
+import airport.observer.Subject;
 import airport.response.Response;
 import airport.response.StatusCode;
-import airport.storage.PlaneRepository;
+import airport.storage.Repository;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
-/**
- * Controlador para operaciones sobre Plane.
- */
-public class PlaneController {
-
-    // Formato XXYYYYY: 2 letras mayúsculas + 5 dígitos
+public class PlaneController implements Subject {
     private static final Pattern ID_PATTERN = Pattern.compile("^[A-Z]{2}\\d{5}$");
+    private final Repository<Plane, String> repository;
+    private final List<Observer> observers;
 
-    private final PlaneRepository repository;
-
-    public PlaneController() {
-        this.repository = new PlaneRepository();
+    public PlaneController(Repository<Plane, String> repository) {
+        this.repository = repository;
+        this.observers = new ArrayList<>();
     }
 
-    /**
-     * Crea un nuevo avión con validaciones:
-     * - id único, formato XXYYYYY
-     * - brand, model, airline no vacíos
-     * - maxCapacity > 0
-     */
+    @Override
+    public void registerObserver(Observer o) {
+        if (o != null && !observers.contains(o)) {
+            observers.add(o);
+        }
+    }
+
+    @Override
+    public void removeObserver(Observer o) {
+        observers.remove(o);
+    }
+
+    @Override
+    public void notifyObservers(String dataType) {
+        for (Observer observer : observers) {
+            observer.update(dataType);
+        }
+    }
+
     public Response<Plane> createPlane(String id,
                                        String brand,
                                        String model,
                                        int maxCapacity,
                                        String airline) {
-        // ID válido
         if (id == null || !ID_PATTERN.matcher(id).matches()) {
             return Response.of(StatusCode.BAD_REQUEST,
                     "El ID debe tener formato XXYYYYY (2 letras mayúsculas y 5 dígitos)");
         }
-        // Unicidad
         if (repository.findById(id).isPresent()) {
             return Response.of(StatusCode.CONFLICT,
                     "Ya existe un avión con ID=" + id);
         }
-        // Campos no vacíos
         if (brand == null || brand.isBlank() ||
                 model == null || model.isBlank() ||
                 airline == null || airline.isBlank()) {
             return Response.of(StatusCode.BAD_REQUEST,
                     "Brand, Model y Airline no pueden estar vacíos");
         }
-        // Capacidad válida
         if (maxCapacity <= 0) {
             return Response.of(StatusCode.BAD_REQUEST,
                     "Max Capacity debe ser un entero mayor que 0");
         }
 
-        // Guardar
         Plane saved = repository.save(
                 new Plane(id, brand, model, maxCapacity, airline)
         );
-        // Clonar (Prototype)
         Plane clone = new Plane(
                 saved.getId(),
                 saved.getBrand(),
@@ -69,17 +75,15 @@ public class PlaneController {
                 saved.getMaxCapacity(),
                 saved.getAirline()
         );
+        notifyObservers("plane"); // Notify observers
         return Response.of(StatusCode.CREATED,
                 "Avión creado exitosamente",
                 clone);
     }
 
-    /**
-     * Devuelve todos los aviones ordenados por ID.
-     */
     public Response<List<Plane>> getAllPlanes() {
-        List<Plane> originals = repository.findAll();
-        List<Plane> clones = originals.stream()
+        List<Plane> list = repository.findAll();
+        List<Plane> clones = list.stream()
                 .map(p -> new Plane(
                         p.getId(),
                         p.getBrand(),
@@ -93,3 +97,4 @@ public class PlaneController {
                 clones);
     }
 }
+

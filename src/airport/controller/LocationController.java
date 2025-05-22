@@ -1,31 +1,45 @@
 package airport.controller;
 
 import airport.model.Location;
+import airport.observer.Observer;
+import airport.observer.Subject;
 import airport.response.Response;
 import airport.response.StatusCode;
-import airport.storage.LocationRepository;
+import airport.storage.Repository;
 
 import java.math.BigDecimal;
-import java.time.DateTimeException;
+import java.util.ArrayList;
 import java.util.List;
-import java.util.stream.Collectors;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
-/**
- * Controlador para operaciones sobre Location (aeropuerto).
- * Valida:
- *  - id único de 3 letras mayúsculas
- *  - name, city, country no vacíos
- *  - latitud ∈[-90,90], longitud ∈[-180,180]
- *  - máx 4 decimales en lat/long
- */
-public class LocationController {
-
+public class LocationController implements Subject {
     private static final Pattern ID_PATTERN = Pattern.compile("^[A-Z]{3}$");
-    private final LocationRepository repository;
+    private final Repository<Location, String> repository;
+    private final List<Observer> observers;
 
-    public LocationController() {
-        this.repository = new LocationRepository();
+    public LocationController(Repository<Location, String> repository) {
+        this.repository = repository;
+        this.observers = new ArrayList<>();
+    }
+
+    @Override
+    public void registerObserver(Observer o) {
+        if (o != null && !observers.contains(o)) {
+            observers.add(o);
+        }
+    }
+
+    @Override
+    public void removeObserver(Observer o) {
+        observers.remove(o);
+    }
+
+    @Override
+    public void notifyObservers(String dataType) {
+        for (Observer observer : observers) {
+            observer.update(dataType);
+        }
     }
 
     public Response<Location> createLocation(String airportId,
@@ -34,42 +48,30 @@ public class LocationController {
                                              String country,
                                              double latitude,
                                              double longitude) {
-        // ID
-        if (airportId == null || !ID_PATTERN.matcher(airportId).matches()) {
+        if (airportId == null || !ID_PATTERN.matcher(airportId).matches())
             return Response.of(StatusCode.BAD_REQUEST,
                     "El ID debe tener 3 letras mayúsculas");
-        }
-        if (repository.findById(airportId).isPresent()) {
+        if (repository.findById(airportId).isPresent())
             return Response.of(StatusCode.CONFLICT,
                     "Ya existe una localización con ID=" + airportId);
-        }
-        // Campos no vacíos
         if (name == null || name.isBlank() ||
                 city == null || city.isBlank() ||
-                country == null || country.isBlank()) {
+                country == null || country.isBlank())
             return Response.of(StatusCode.BAD_REQUEST,
                     "Name, City y Country no pueden estar vacíos");
-        }
-        // Rangos lat/long
-        if (latitude < -90.0 || latitude > 90.0) {
+        if (latitude < -90.0 || latitude > 90.0)
             return Response.of(StatusCode.BAD_REQUEST,
                     "Latitud debe estar entre -90 y 90");
-        }
-        if (longitude < -180.0 || longitude > 180.0) {
+        if (longitude < -180.0 || longitude > 180.0)
             return Response.of(StatusCode.BAD_REQUEST,
                     "Longitud debe estar entre -180 y 180");
-        }
-        // Decimales ≤4
-        if (decimalScale(latitude) > 4 || decimalScale(longitude) > 4) {
+        if (decimalScale(latitude) > 4 || decimalScale(longitude) > 4)
             return Response.of(StatusCode.BAD_REQUEST,
                     "Latitud y Longitud pueden tener hasta 4 decimales");
-        }
 
-        // Guardar
         Location saved = repository.save(
                 new Location(airportId, name, city, country, latitude, longitude)
         );
-        // Clonar (Prototype)
         Location clone = new Location(
                 saved.getAirportId(),
                 saved.getAirportName(),
@@ -78,6 +80,7 @@ public class LocationController {
                 saved.getAirportLatitude(),
                 saved.getAirportLongitude()
         );
+        notifyObservers("location"); // Notify observers
         return Response.of(StatusCode.CREATED,
                 "Localización creada exitosamente",
                 clone);
@@ -99,9 +102,10 @@ public class LocationController {
                 clones);
     }
 
-    /** Retorna la cantidad de decimales de un número double */
-    private int decimalScale(double d) {
-        BigDecimal bd = BigDecimal.valueOf(d).stripTrailingZeros();
+    private int decimalScale(double value) {
+        BigDecimal bd = BigDecimal.valueOf(value).stripTrailingZeros();
         return Math.max(0, bd.scale());
     }
 }
+
+
